@@ -1,12 +1,28 @@
 use std::collections::VecDeque;
 
+/// Represents the result of inserting into a KBucket.
+/// 
+/// Depending on the state of the bucket, we might not be able to insert
+/// a new value. Since the bucket doesn't have the capability of hitting
+/// the network to check whether or not nodes are alive, we need to do that
+/// ourselves, after having called
+/// [insert](struct.KBucket.html#method.insert).
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum KBucketInsert<T> {
+pub enum KBucketInsert<T> {
+    /// We successfully inserted the item into the bucket
     Inserted,
+    /// We couldn't insert the item into the bucket, and need to ping the network.
+    /// 
+    /// In this case, we want to check if the oldest node in the bucket is still
+    /// alive, so we need to ping that node, and then report back to the bucket.
+    /// If the node is still alive, we then call
+    /// [successful_ping](struct.KBucket.html#method.succcessful_ping),
+    /// otherwise we call
+    /// [failed_ping](struct.KBucket.html#method.failed_ping).
     Ping(T),
 }
 
-struct KBucket<T> {
+pub struct KBucket<T> {
     max_size: usize,
     waiting: Option<T>,
     data: VecDeque<T>,
@@ -52,6 +68,7 @@ impl<T: Clone + PartialEq> KBucket<T> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
