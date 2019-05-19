@@ -22,13 +22,31 @@ pub enum KBucketInsert<T> {
     Ping(T),
 }
 
+/// This represents a KBucket used in the Kademlia DHT.
+/// 
+/// Each KBucket is used to store a fixed size set of nodes.
+/// New nodes can be added into the bucket until it fills up, at which
+/// point new nodes will only be added if a node dies.
+/// We have this preference for long-lived nodes, since the longer a node
+/// lives, the longer it tends to stay alive as well.
 pub struct KBucket<T> {
+    // The max size never changes, and should usually be 20, but
+    // we store it inside the struct itself since we access it frequently.
     max_size: usize,
+    // When we try to insert a node into a full bucket, we need
+    // to check whether or not the oldest node is still alive by
+    // pinging it across the network. Since this happens after inserting,
+    // we store the node awaiting insertion in this variable while we
+    // wait until one of the ping methods is called again.
     waiting: Option<T>,
+    // This holds the actual elements in the bucket
     data: VecDeque<T>,
 }
 
 impl<T: Clone + PartialEq> KBucket<T> {
+    /// Create a new KBucket with a given max_size
+    /// 
+    /// The default specified in the Kademlia paper is 20.
     pub fn new(max_size: usize) -> Self {
         KBucket {
             max_size,
@@ -37,6 +55,13 @@ impl<T: Clone + PartialEq> KBucket<T> {
         }
     }
 
+    /// Try and insert an element into the bucket.
+    /// 
+    /// If the bucket still has room left, we just insert the element
+    /// directly, and `Inserted` is returned. If we can't insert the element,
+    /// then we return an element that needs to be pinged to check if it's
+    /// still alive. After performing that check, one of the ping
+    /// methods on this struct should be called to finalize insertion.
     pub fn insert(&mut self, item: T) -> KBucketInsert<T> {
         let existing = self.data.iter().position(|x| *x == item);
         if let Some(index) = existing {
@@ -51,6 +76,13 @@ impl<T: Clone + PartialEq> KBucket<T> {
         }
     }
 
+    /// Report that the ping requested succeeded.
+    /// 
+    /// This should be called after being requested to ping by the insert
+    /// method, and then receiving a timely response from the node.
+    /// 
+    /// This will clear whatever node was waiting to be inserted, since
+    /// it cannot take the place of a dead node.
     pub fn successful_ping(&mut self) {
         self.waiting = None;
         if let Some(item) = self.data.pop_front() {
@@ -58,6 +90,13 @@ impl<T: Clone + PartialEq> KBucket<T> {
         }
     }
 
+    /// Report that the ping requested failed.
+    /// 
+    /// This should be called after being requested to ping by the insert
+    /// method, and then failing to receive a timely response from the node.
+    /// 
+    /// This will insert the node that was waiting to be inserted in
+    /// the bucker, since it can replace the node that we knew has died.
     pub fn failed_ping(&mut self) {
         // Normally this should only be called if we requested a ping,
         // and there's an item waiting, but we can just do nothing instead.
