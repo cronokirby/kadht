@@ -33,12 +33,12 @@ pub struct KBucket<T> {
     // The max size never changes, and should usually be 20, but
     // we store it inside the struct itself since we access it frequently.
     max_size: usize,
-    // When we try to insert a node into a full bucket, we need
-    // to check whether or not the oldest node is still alive by
-    // pinging it across the network. Since this happens after inserting,
-    // we store the node awaiting insertion in this variable while we
-    // wait until one of the ping methods is called again.
-    waiting: Option<T>,
+    // This acts as a FILO stack for pending nodes.
+    // New nodes can only be inserted into a full bucket if an existing
+    // node in that bucket is died. We always want to insert the most
+    // recently known nodes, so we use this stack order for the waiting
+    // elements.
+    waiting: Vec<T>,
     // This holds the actual elements in the bucket
     data: VecDeque<T>,
 }
@@ -50,7 +50,7 @@ impl<T: Clone + PartialEq> KBucket<T> {
     pub fn new(max_size: usize) -> Self {
         KBucket {
             max_size,
-            waiting: None,
+            waiting: Vec::new(),
             data: VecDeque::with_capacity(max_size),
         }
     }
@@ -71,38 +71,18 @@ impl<T: Clone + PartialEq> KBucket<T> {
             self.data.push_back(item);
             return KBucketInsert::Inserted;
         } else {
-            self.waiting = Some(item);
+            self.waiting.push(item);
             return KBucketInsert::Ping(self.data[0].clone());
         }
     }
 
-    /// Report that the ping requested succeeded.
-    /// 
-    /// This should be called after being requested to ping by the insert
-    /// method, and then receiving a timely response from the node.
-    /// 
-    /// This will clear whatever node was waiting to be inserted, since
-    /// it cannot take the place of a dead node.
-    pub fn successful_ping(&mut self) {
-        self.waiting = None;
-        if let Some(item) = self.data.pop_front() {
-            self.data.push_back(item);
-        }
-    }
-
-    /// Report that the ping requested failed.
-    /// 
-    /// This should be called after being requested to ping by the insert
-    /// method, and then failing to receive a timely response from the node.
-    /// 
-    /// This will insert the node that was waiting to be inserted in
-    /// the bucker, since it can replace the node that we knew has died.
-    pub fn failed_ping(&mut self) {
-        // Normally this should only be called if we requested a ping,
-        // and there's an item waiting, but we can just do nothing instead.
-        if let Some(item) = self.waiting.take() {
-            self.data.pop_front();
-            self.data.push_back(item);
+    pub fn remove(&mut self, item: T) {
+        let existing = self.data.iter().position(|x| *x == item);
+        if let Some(index) = existing {
+            self.data.remove(index);
+            if let Some(new) = self.waiting.pop() {
+                self.data.push_back(new);
+            }
         }
     }
 }
@@ -131,26 +111,14 @@ mod tests {
     }
 
     #[test]
-    fn kbucket_handles_successful_pings() {
-        let max_size = 20;
-        let mut bucket: KBucket<usize> = KBucket::new(max_size);
-        for x in 0..max_size {
-            bucket.insert(x);
-        }
-        bucket.successful_ping();
-        assert_eq!(Some(1), bucket.data.pop_front());
-        assert_eq!(Some(0), bucket.data.pop_back());
-    }
-
-    #[test]
-    fn kbucket_handles_failed_pings() {
+    fn kbucket_remove_replaces_waiting() {
         let max_size = 20;
         let mut bucket: KBucket<usize> = KBucket::new(max_size);
         for x in 0..max_size {
             bucket.insert(x);
         }
         bucket.insert(max_size);
-        bucket.failed_ping();
+        bucket.remove(0);
         assert_eq!(Some(1), bucket.data.pop_front());
         assert_eq!(Some(max_size), bucket.data.pop_back());
     }
