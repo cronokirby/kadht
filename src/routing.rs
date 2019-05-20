@@ -16,9 +16,9 @@ pub enum KBucketInsert<T> {
     /// In this case, we want to check if the oldest node in the bucket is still
     /// alive, so we need to ping that node, and then report back to the bucket.
     /// If the node is still alive, we then call
-    /// [successful_ping](struct.KBucket.html#method.succcessful_ping),
+    /// [insert](struct.KBucket.html#method.succcessful_ping),
     /// otherwise we call
-    /// [failed_ping](struct.KBucket.html#method.failed_ping).
+    /// [remove](struct.KBucket.html#method.failed_ping).
     Ping(T),
 }
 
@@ -57,11 +57,15 @@ impl<T: Clone + PartialEq> KBucket<T> {
 
     /// Try and insert an element into the bucket.
     /// 
+    /// This should be called whenever any message is received from a node,
+    /// regardless of whether or not it's an rpc call or response.
+    /// 
     /// If the bucket still has room left, we just insert the element
     /// directly, and `Inserted` is returned. If we can't insert the element,
     /// then we return an element that needs to be pinged to check if it's
-    /// still alive. After performing that check, one of the ping
-    /// methods on this struct should be called to finalize insertion.
+    /// still alive. After performing that check, either insert should
+    /// be called again, since we received a ping response from that node,
+    /// or remove should be called, since we know that node has died.
     pub fn insert(&mut self, item: T) -> KBucketInsert<T> {
         let existing = self.data.iter().position(|x| *x == item);
         if let Some(index) = existing {
@@ -76,6 +80,16 @@ impl<T: Clone + PartialEq> KBucket<T> {
         }
     }
 
+    /// Remove a dead node from this bucket.
+    /// 
+    /// This should be called after an RPC call to a node timed out,
+    /// which indicates that the node appears to be dead. This also
+    /// applies in the case that we were asked to ping a node after
+    /// inserting an item into the bucket.
+    /// 
+    /// Removing a node also has the effect of inserting the node we
+    /// tried to insert most recently, but couldn't because of the lack of
+    /// dead nodes.
     pub fn remove(&mut self, item: T) {
         let existing = self.data.iter().position(|x| *x == item);
         if let Some(index) = existing {
