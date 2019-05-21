@@ -1,6 +1,5 @@
 use crate::base::{Node, KEY_SIZE};
 use std::collections::VecDeque;
-use std::net::SocketAddr;
 
 /// How many nodes should be active in a bucket
 const BUCKET_SIZE: usize = 20;
