@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 /// Represents an identifier used in Kademlia.
 ///
 /// These identifiers are used to represent two similar things:
@@ -48,6 +50,24 @@ impl BitKey {
     pub fn distance(self, other: BitKey) -> u128 {
         self.0 ^ other.0
     }
+}
+
+#[derive(Debug)]
+/// Represents the information we keep for every node.
+///
+/// These elements are inserted into our routing table,
+/// allowing us to inform other nodes of their existence,
+/// as well as contact them as part of the protocol.
+pub struct Node {
+    /// A unique identifier for this node.
+    ///
+    /// Using the BitKey struct is important, since we want
+    /// to know how close a given node is to a specific key.
+    pub id: BitKey,
+    /// An address we can use to contact this node.
+    ///
+    /// This address will be used to send RPC calls.
+    pub udp_addr: SocketAddr,
 }
 
 #[cfg(test)]
