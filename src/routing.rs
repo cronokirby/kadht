@@ -1,5 +1,6 @@
 use crate::base::{Node, KEY_SIZE};
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 
 /// How many nodes should be active in a bucket
 const BUCKET_SIZE: usize = 20;
@@ -110,7 +111,7 @@ impl<T: Clone + PartialEq> KBucket<T> {
 // instead of doing "lazy" splitting of buckets closer to the range our node
 // is contained in. This has the advantage of making the implementation quite simple.
 /// Represents a routing table, containing buckets at varying distances.
-/// 
+///
 /// We organise buckets based on certain intervals of distances. Each bucket
 /// contains nodes whose distance from this instance is between 2 subsequent
 /// powers of 2. This means that the further away a range is from us, the less
@@ -132,7 +133,7 @@ pub struct RoutingTable {
 
 impl RoutingTable {
     /// Construct a new routing table with a node for this instance.
-    /// 
+    ///
     /// We need to know which node is representing this instance
     /// in order to evaluate the distance between this instance and the nodes
     /// we try and insert into the routing table.
@@ -185,6 +186,7 @@ impl RoutingTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base::BitKey;
 
     #[test]
     fn kbucket_can_insert_max_size() {
@@ -216,5 +218,20 @@ mod tests {
         bucket.remove(0);
         assert_eq!(Some(1), bucket.data.pop_front());
         assert_eq!(Some(max_size), bucket.data.pop_back());
+    }
+
+    #[test]
+    fn routing_table_can_insert() {
+        let udp_addr = "127.0.0.1:1234".parse().unwrap();
+        let this_node = Node {
+            id: BitKey(0),
+            udp_addr,
+        };
+        let mut table = RoutingTable::new(this_node);
+        for k in 0..KEY_SIZE {
+            let id = BitKey(1 << k);
+            let node = Node { id, udp_addr };
+            assert_eq!(KBucketInsert::Inserted, table.insert(node));
+        }
     }
 }
