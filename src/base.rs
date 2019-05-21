@@ -1,5 +1,8 @@
 use std::net::SocketAddr;
 
+/// How many bits are in a key identifiying a node.
+pub const KEY_SIZE: usize = 128;
+
 /// Represents an identifier used in Kademlia.
 ///
 /// These identifiers are used to represent two similar things:
@@ -17,7 +20,7 @@ use std::net::SocketAddr;
 /// e.g. the distance metric we mentioned before, but has no semantic
 /// meaning by itself, since it can be used to mean one of these 2 things
 /// depending on the situation.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BitKey(pub u128);
 
 impl BitKey {
@@ -52,7 +55,7 @@ impl BitKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 /// Represents the information we keep for every node.
 ///
 /// These elements are inserted into our routing table,
@@ -68,6 +71,12 @@ pub struct Node {
     ///
     /// This address will be used to send RPC calls.
     pub udp_addr: SocketAddr,
+}
+
+impl PartialEq for Node {
+    fn eq(&self, other: &Node) -> bool {
+        self.id == other.id
+    }
 }
 
 #[cfg(test)]
