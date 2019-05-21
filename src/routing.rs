@@ -131,6 +131,11 @@ pub struct RoutingTable {
 }
 
 impl RoutingTable {
+    /// Construct a new routing table with a node for this instance.
+    /// 
+    /// We need to know which node is representing this instance
+    /// in order to evaluate the distance between this instance and the nodes
+    /// we try and insert into the routing table.
     pub fn new(this_node: Node) -> Self {
         let buckets = vec![KBucket::new(BUCKET_SIZE); KEY_SIZE];
         RoutingTable { this_node, buckets }
