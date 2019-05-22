@@ -62,4 +62,39 @@ call or response.
 |key_len|1|(u8) how long the next field is|
 |key|key_len|the string key|
 |val_len|1|(u8) how long the next field is|
-val|val_len|the value to associate with this key|
+|val|val_len|the value to associate with this key|
+
+### Response
+|field|size (bytes)|description    |
+|-----|------------|---------------|
+|type|1|0x6 for Store response|
+
+## FindValue
+
+Find value is different in that the RPC call either returns
+a single string if the value associated with a key was found,
+and otherwise returns a response similar to that of FindNode.
+
+### Request
+|field|size (bytes)|description    |
+|-----|------------|---------------|
+|type|1|0x7 for FindValue Request|
+|key_len|1|(u8) how long the next field is|
+|key|key_len|the string key we want to find|
+
+### Node Response
+|field|size (bytes)|description    |
+|-----|------------|---------------|
+|type|1|0x8 for FindValue Node Response|
+|node_count|1|(u8) how times the next field appears|
+|node_id[i]|16|the id of the ith node returned|
+|ip_type|1|0x4 for IPV4 and 0x6 for IPV6|
+|addr[i]|16 / 4|16 bytes for IPV6, 4 for IPV4|
+|port[i]|4|the 16 bit port for this node|
+
+## Value Response
+|field|size (bytes)|description    |
+|-----|------------|---------------|
+|type|1|0x9 for FindValue Value Response|
+|val_len|1|(u8) how long the next field is|
+|val|val_len|the value for the key we requested|

@@ -16,6 +16,6 @@ enum RPCPayload {
     FindValueNodes(Vec<Node>),
     FindNode(BitKey),
     FindNodeResp(Vec<Node>),
-    Store,
+    Store(String, String),
     StoreResp
 }
