@@ -81,6 +81,21 @@ pub struct Node {
     pub udp_addr: SocketAddr,
 }
 
+impl Node {
+    /// Create a new node from scratch, generating a random id.
+    ///
+    /// This is useful when starting a node for the first time.
+    /// This will generate a random ID for this node in a uniform manner.
+    /// An address needs to be passed so that we have information about how we should
+    /// be contacted.
+    pub fn create<R: Rng + ?Sized>(rng: &mut R, udp_addr: SocketAddr) -> Self {
+        Node {
+            id: rng.gen(),
+            udp_addr,
+        }
+    }
+}
+
 impl PartialEq for Node {
     fn eq(&self, other: &Node) -> bool {
         self.id == other.id
