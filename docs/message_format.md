@@ -7,6 +7,8 @@ Protocol definitions are to be found more precisely in
 The paper only specifies the outgoing rpc calls, and not the responses,
 which we do here.
 
+Unless otherwise specified, all numbers are in network (Big-endian) byte order.
+
 ## Message Format
 
 Each RPC call or response is prefixed with a header, specified as follows:
@@ -51,7 +53,7 @@ call or response.
 |node_id[i]|16|the id of the ith node returned|
 |ip_type|1|0x4 for IPV4 and 0x6 for IPV6|
 |addr[i]|16 / 4|16 bytes for IPV6, 4 for IPV4|
-|port[i]|4|the 16 bit port for this node|
+|port[i]|2|the 16 bit port for this node|
 
 ## Store
 
@@ -90,7 +92,7 @@ and otherwise returns a response similar to that of FindNode.
 |node_id[i]|16|the id of the ith node returned|
 |ip_type|1|0x4 for IPV4 and 0x6 for IPV6|
 |addr[i]|16 / 4|16 bytes for IPV6, 4 for IPV4|
-|port[i]|4|the 16 bit port for this node|
+|port[i]|2|the 16 bit port for this node|
 
 ## Value Response
 |field|size (bytes)|description    |
