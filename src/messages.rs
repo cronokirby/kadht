@@ -5,6 +5,12 @@ use std::net::IpAddr;
 
 const BITKEY_BYTES: usize = 16;
 
+/// Represents a Transaction ID used to identify RPC calls
+///
+/// RPC calls include a transaction id in order to match responses
+/// to requests, as well as to provide some mitigation against IP spoofing.
+/// Transaction IDs can be generated randomly, but the Message struct already
+/// provides a utility for generating them when creating a message.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TransactionID(u64);
 
@@ -14,38 +20,91 @@ impl Distribution<TransactionID> for Standard {
     }
 }
 
+/// Represents the Header included with every RPC message.
+///
+/// This contains information about the node that sent the message, as well
+/// as the transaction ID identifying this message. The transaction ID
+/// is unique when this message is a call, and matches the request when
+/// this message is a response
 pub struct Header {
+    /// The ID for the node that is sending this message
     pub node_id: BitKey,
+    /// A transaction ID identifying this RPC call
     pub transaction_id: TransactionID,
 }
 
+/// Represents the data differing between RPC messages.
+///
+/// This contains branches for both RPC requests, and RPC responses.
 pub enum RPCPayload {
+    /// Request a Ping response from a node.
+    ///
+    /// This is mainly used to check whether or not a node is still alive.
     Ping,
+    /// Respond to a ping request from a node.
     PingResp,
+    /// Ask for the value bound to a given key
     FindValue(String),
+    /// Respond with the value for the key requested
     FindValueResp(String),
+    /// Respond with up to K of the closest nodes we know of to the requested key
+    ///
+    /// This will get returned instead of `FindValuesResp` unless we've received
+    /// a `Store` call directly.
     FindValueNodes(Vec<Node>),
+    /// Try and find the K closest nodes to a given key
     FindNode(BitKey),
+    /// Respond with up to K of the closest nodes to the requested key
     FindNodeResp(Vec<Node>),
+    /// Store a `(key, value)` pair in a given node
     Store(String, String),
+    /// Respond to a `Store` request, confirming that it happened
     StoreResp,
 }
 
+/// Represents an RPC message sent between two nodes.
+///
+/// Every header contains a header, giving us information about
+/// the sender, as well as identifying the RPC call, allowing us
+/// to link responses with requests. After the header, we have
+/// a payload identifying the specific kind of request we're dealing with.
 pub struct Message {
+    /// This contains general metadata about this message
     pub header: Header,
+    /// This contains specific data depending on the message we're sending
     pub payload: RPCPayload,
 }
 
 impl Message {
+    /// Create a new message, including our node id, and a payload.
+    ///
+    /// This will generate a new transaction ID for this message as well.
+    /// This should be used when we're initiating an RPC call, as we want a new transaction ID
+    /// for the message. This shouldn't be used when we're responding to an RPC call, because
+    /// we want to include the transaction ID used in that call.
+    /// In that case,
     pub fn create<R: Rng + ?Sized>(rng: &mut R, this_node_id: BitKey, payload: RPCPayload) -> Self {
         let transaction_id = rng.gen();
+        Self::response(transaction_id, this_node_id, payload)
+    }
+
+    /// Create a new message, including our own node_id, a payload, and matching a transaction ID.
+    ///
+    /// This should be used when responding to an RPC call, since we want to include
+    /// the transaction ID used in that call. This can't be used when initiating
+    /// an RPC call, since we have no transaction ID to mirror, and instead need to generate
+    /// a fresh one.
+    /// This can be done with
+    /// [create](struct.Message.html#method.create).
+    pub fn response(transaction_id: TransactionID, node_id: BitKey, payload: RPCPayload) -> Self {
         let header = Header {
-            node_id: this_node_id,
+            node_id,
             transaction_id,
         };
         Message { header, payload }
     }
 
+    /// Serialize a message to a buffer, returning the number of bytes written.
     pub fn write(self, buf: &mut [u8]) -> usize {
         use RPCPayload::*;
         write_bitkey(self.header.node_id, buf);
