@@ -94,6 +94,13 @@ impl Node {
             udp_addr,
         }
     }
+
+    /// Calculate the distance between 2 nodes, based on ID.
+    /// 
+    /// See [BitKey::distance](struct.BitKey.html#method.distance).
+    pub fn distance(&self, other: &Node) -> u128 {
+        self.id.distance(other.id)
+    }
 }
 
 impl PartialEq for Node {

@@ -104,6 +104,19 @@ impl KBucket {
             }
         }
     }
+
+    /// Find up to the the k closest nodes to a target in this bucket.
+    /// 
+    /// This will return `min(k, bucket_items)` items. This pushes the items
+    /// to the bucket in sorted order as well.
+    pub fn k_closest(&self, buf: &mut Vec<Node>, target: &Node, k: usize) -> usize {
+        let mut scratch: Vec<Node> = self.data.iter().cloned().collect();
+        scratch.sort_by_cached_key(|node| node.distance(target));
+        for node in scratch.into_iter().take(k) {
+            buf.push(node);
+        }
+        self.data.len()
+    }
 }
 
 // Our implementation for the routing table initializes all buckets immediately,
