@@ -1,10 +1,18 @@
 use crate::base::{BitKey, Node};
+use crate::rand::distributions::{Distribution, Standard};
+use crate::rand::Rng;
 use std::net::IpAddr;
 
 const BITKEY_BYTES: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TransactionID(u64);
+
+impl Distribution<TransactionID> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> TransactionID {
+        TransactionID(rng.gen())
+    }
+}
 
 pub struct Header {
     pub node_id: BitKey,
@@ -29,6 +37,15 @@ pub struct Message {
 }
 
 impl Message {
+    pub fn create<R: Rng + ?Sized>(rng: &mut R, this_node_id: BitKey, payload: RPCPayload) -> Self {
+        let transaction_id = rng.gen();
+        let header = Header {
+            node_id: this_node_id,
+            transaction_id,
+        };
+        Message { header, payload }
+    }
+
     pub fn write(self, buf: &mut [u8]) -> usize {
         use RPCPayload::*;
         write_bitkey(self.header.node_id, buf);

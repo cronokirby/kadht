@@ -1,3 +1,5 @@
+use crate::rand::distributions::{Distribution, Standard};
+use crate::rand::Rng;
 use std::net::SocketAddr;
 
 /// How many bits are in a key identifiying a node.
@@ -52,6 +54,12 @@ impl BitKey {
     /// `x.distance(z) <= x.distance(y) + y.distance(z)`
     pub fn distance(self, other: BitKey) -> u128 {
         self.0 ^ other.0
+    }
+}
+
+impl Distribution<BitKey> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BitKey {
+        BitKey(rng.gen())
     }
 }
 
