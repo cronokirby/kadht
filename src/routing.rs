@@ -11,8 +11,8 @@ const BUCKET_SIZE: usize = 20;
 /// the network to check whether or not nodes are alive, we need to do that
 /// ourselves, after having called
 /// [insert](struct.KBucket.html#method.insert).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum KBucketInsert<T> {
+#[derive(Clone, Debug, PartialEq)]
+pub enum KBucketInsert {
     /// We successfully inserted the item into the bucket
     Inserted,
     /// We couldn't insert the item into the bucket, and need to ping the network.
@@ -23,7 +23,7 @@ pub enum KBucketInsert<T> {
     /// [insert](struct.KBucket.html#method.succcessful_ping),
     /// otherwise we call
     /// [remove](struct.KBucket.html#method.failed_ping).
-    Ping(T),
+    Ping(Node),
 }
 
 /// This represents a KBucket used in the Kademlia DHT.
@@ -34,7 +34,7 @@ pub enum KBucketInsert<T> {
 /// We have this preference for long-lived nodes, since the longer a node
 /// lives, the longer it tends to stay alive as well.
 #[derive(Clone, Debug)]
-pub struct KBucket<T> {
+pub struct KBucket {
     // The max size never changes, and should usually be 20, but
     // we store it inside the struct itself since we access it frequently.
     max_size: usize,
@@ -43,12 +43,12 @@ pub struct KBucket<T> {
     // node in that bucket is died. We always want to insert the most
     // recently known nodes, so we use this stack order for the waiting
     // elements.
-    waiting: Vec<T>,
+    waiting: Vec<Node>,
     // This holds the actual elements in the bucket
-    data: VecDeque<T>,
+    data: VecDeque<Node>,
 }
 
-impl<T: Clone + PartialEq> KBucket<T> {
+impl KBucket {
     /// Create a new KBucket with a given max_size
     ///
     /// The default specified in the Kademlia paper is 20.
@@ -71,7 +71,7 @@ impl<T: Clone + PartialEq> KBucket<T> {
     /// still alive. After performing that check, either insert should
     /// be called again, since we received a ping response from that node,
     /// or remove should be called, since we know that node has died.
-    pub fn insert(&mut self, item: T) -> KBucketInsert<T> {
+    pub fn insert(&mut self, item: Node) -> KBucketInsert {
         let existing = self.data.iter().position(|x| *x == item);
         if let Some(index) = existing {
             self.data.remove(index);
@@ -95,7 +95,7 @@ impl<T: Clone + PartialEq> KBucket<T> {
     /// Removing a node also has the effect of inserting the node we
     /// tried to insert most recently, but couldn't because of the lack of
     /// dead nodes.
-    pub fn remove(&mut self, item: T) {
+    pub fn remove(&mut self, item: Node) {
         let existing = self.data.iter().position(|x| *x == item);
         if let Some(index) = existing {
             self.data.remove(index);
@@ -127,7 +127,7 @@ pub struct RoutingTable {
     // contains nodes with i leading zeros in their distance from this node.
     // For example, if the distance between a node and this node is 00101b,
     // then this would go in the bucket with index 2.
-    buckets: Vec<KBucket<Node>>,
+    buckets: Vec<KBucket>,
 }
 
 impl RoutingTable {
@@ -151,7 +151,7 @@ impl RoutingTable {
     /// Inserting the node for this instance will just return `KBucketInsert::Inserted`
     /// but do nothing to the underlying buckets. There's no reason
     /// to ever call this method with the node for this instance however.
-    pub fn insert(&mut self, node: Node) -> KBucketInsert<Node> {
+    pub fn insert(&mut self, node: Node) -> KBucketInsert {
         // In theory no one should even try to insert this node, but
         // it can be handled as if we successfully inserted it.
         // It's like the first field of this struct is the bucket for nodes
@@ -187,36 +187,52 @@ mod tests {
     use super::*;
     use crate::base::BitKey;
 
+    fn make_node(id: u128) -> Node {
+        Node {
+            id: BitKey(id),
+            udp_addr: "0.0.0.0:10".parse().unwrap(),
+        }
+    }
+
     #[test]
     fn kbucket_can_insert_max_size() {
         let max_size = 20;
-        let mut bucket: KBucket<usize> = KBucket::new(max_size);
+        let mut bucket = KBucket::new(max_size);
         for x in 0..max_size {
-            assert_eq!(KBucketInsert::Inserted, bucket.insert(x));
+            let node = make_node(x as u128);
+            assert_eq!(KBucketInsert::Inserted, bucket.insert(node));
         }
     }
 
     #[test]
     fn kbucket_pings_first_inserted() {
         let max_size = 20;
-        let mut bucket: KBucket<usize> = KBucket::new(max_size);
+        let mut bucket = KBucket::new(max_size);
         for x in 0..max_size {
-            bucket.insert(x);
+            let node = Node {
+                id: BitKey(x as u128),
+                udp_addr: "0.0.0.0:10".parse().unwrap(),
+            };
+            bucket.insert(node);
         }
-        assert_eq!(KBucketInsert::Ping(0), bucket.insert(max_size));
+        assert_eq!(
+            KBucketInsert::Ping(make_node(0)),
+            bucket.insert(make_node(max_size as u128))
+        );
     }
 
     #[test]
     fn kbucket_remove_replaces_waiting() {
         let max_size = 20;
-        let mut bucket: KBucket<usize> = KBucket::new(max_size);
+        let mut bucket = KBucket::new(max_size);
         for x in 0..max_size {
-            bucket.insert(x);
+            let node = make_node(x as u128);
+            bucket.insert(node);
         }
-        bucket.insert(max_size);
-        bucket.remove(0);
-        assert_eq!(Some(1), bucket.data.pop_front());
-        assert_eq!(Some(max_size), bucket.data.pop_back());
+        bucket.insert(make_node(max_size as u128));
+        bucket.remove(make_node(0));
+        assert_eq!(Some(make_node(1)), bucket.data.pop_front());
+        assert_eq!(Some(make_node(max_size as u128)), bucket.data.pop_back());
     }
 
     #[test]
