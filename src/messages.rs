@@ -1,6 +1,8 @@
 use crate::base::{BitKey, Node};
 use std::net::IpAddr;
 
+const BITKEY_BYTES: usize = 16;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TransactionID(u64);
 
@@ -30,7 +32,7 @@ impl Message {
     pub fn write(self, buf: &mut [u8]) -> usize {
         use RPCPayload::*;
         write_bitkey(self.header.node_id, buf);
-        write_transaction_id(self.header.transaction_id, &mut buf[16..]);
+        write_transaction_id(self.header.transaction_id, &mut buf[BITKEY_BYTES..]);
         match self.payload {
             Ping => {
                 buf[24] = 1;
@@ -43,7 +45,7 @@ impl Message {
             FindNode(id) => {
                 buf[24] = 3;
                 write_bitkey(id, &mut buf[25..]);
-                31
+                41
             }
             FindNodeResp(nodes) => {
                 buf[24] = 4;
@@ -81,7 +83,7 @@ impl Message {
 
 fn write_bitkey(key: BitKey, buf: &mut [u8]) {
     let mut num = key.0;
-    for i in (0..15).rev() {
+    for i in (0..BITKEY_BYTES).rev() {
         buf[i] = num as u8;
         num >>= 8;
     }
@@ -112,6 +114,7 @@ fn write_nodes(nodes: Vec<Node>, mut buf: &mut [u8]) -> usize {
     buf = &mut buf[1..];
     for node in nodes {
         write_bitkey(node.id, buf);
+        buf = &mut buf[BITKEY_BYTES..];
         let version = if node.udp_addr.is_ipv4() { 4 } else { 6 };
         buf[0] = version;
         buf = &mut buf[1..];
@@ -133,7 +136,193 @@ fn write_nodes(nodes: Vec<Node>, mut buf: &mut [u8]) -> usize {
         let port = node.udp_addr.port();
         buf[0] = (port >> 8) as u8;
         buf[1] = port as u8;
-        count += written + 3;
+        count += written + 19;
     }
     count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ping_req_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 1,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::Ping,
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes, &buf[..count]);
+    }
+
+    #[test]
+    fn ping_resp_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 2,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::PingResp,
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes, &buf[..count]);
+    }
+
+    #[test]
+    fn find_value_req_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let string = String::from("AAAA");
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 7, 4, 65,
+            65, 65, 65,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::FindValue(string),
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes, &buf[..count]);
+    }
+
+    #[test]
+    fn find_value_resp_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let string = String::from("AAAA");
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 9, 4, 65,
+            65, 65, 65,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::FindValueResp(string),
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes, &buf[..count]);
+    }
+
+    #[test]
+    fn find_value_nodes_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let nodes = vec![Node {
+            id: header.node_id,
+            udp_addr: "127.0.0.1:8080".parse().unwrap(),
+        }];
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 8, 1, 0,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 127, 0, 0, 1, 31, 144,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::FindValueNodes(nodes),
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes[0..], &buf[..count]);
+    }
+
+    #[test]
+    fn find_node_req_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 3, 0, 1,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+        ];
+        let id = header.node_id;
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::FindNode(id),
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes[0..], &buf[..count]);
+    }
+
+    #[test]
+    fn find_node_resp_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let nodes = vec![Node {
+            id: header.node_id,
+            udp_addr: "127.0.0.1:8080".parse().unwrap(),
+        }];
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 4, 1, 0,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 4, 127, 0, 0, 1, 31, 144,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::FindNodeResp(nodes),
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes[0..], &buf[..count]);
+    }
+
+    #[test]
+    fn store_req_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let key = String::from("AAAA");
+        let val = String::from("BBBB");
+        let bytes: [u8; 35] = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 5, 4, 65,
+            65, 65, 65, 4, 66, 66, 66, 66,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::Store(key, val),
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes[0..], &buf[..count]);
+    }
+
+    #[test]
+    fn store_resp_write() {
+        let header = Header {
+            node_id: BitKey(0x102030405060708090A0B0C0D0E0F),
+            transaction_id: TransactionID(0x0102030405060708),
+        };
+        let bytes = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 1, 2, 3, 4, 5, 6, 7, 8, 6,
+        ];
+        let mut buf = [0; 0x100];
+        let msg = Message {
+            header,
+            payload: RPCPayload::StoreResp,
+        };
+        let count = msg.write(&mut buf);
+        assert_eq!(&bytes, &buf[..count]);
+    }
 }
