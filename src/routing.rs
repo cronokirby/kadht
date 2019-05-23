@@ -1,4 +1,4 @@
-use crate::base::{Node, KEY_SIZE};
+use crate::base::{BitKey, Node, KEY_SIZE};
 use std::collections::VecDeque;
 
 /// How many nodes should be active in a bucket
@@ -106,12 +106,12 @@ impl KBucket {
     }
 
     /// Find up to the the k closest nodes to a target in this bucket.
-    /// 
+    ///
     /// This will return `min(k, bucket_items)` items. This pushes the items
     /// to the bucket in sorted order as well.
-    pub fn k_closest(&self, buf: &mut Vec<Node>, target: &Node, k: usize) -> usize {
+    pub fn k_closest(&self, buf: &mut Vec<Node>, target: BitKey, k: usize) -> usize {
         let mut scratch: Vec<Node> = self.data.iter().cloned().collect();
-        scratch.sort_by_cached_key(|node| node.distance(target));
+        scratch.sort_by_cached_key(|node| node.id.distance(target));
         for node in scratch.into_iter().take(k) {
             buf.push(node);
         }
@@ -172,7 +172,7 @@ impl RoutingTable {
         if self.this_node == node {
             return KBucketInsert::Inserted;
         }
-        let distance = self.this_node.id.distance(node.id);
+        let distance = self.this_node.distance(&node);
         let i = distance.leading_zeros() as usize;
         self.buckets[i].insert(node)
     }
@@ -189,9 +189,40 @@ impl RoutingTable {
         if self.this_node == *node {
             return;
         }
-        let distance = self.this_node.id.distance(node.id);
+        let distance = self.this_node.distance(node);
         let i = distance.leading_zeros() as usize;
         self.buckets[i].remove(node)
+    }
+
+    /// Find the k_closest elements to the target key in the routing table.
+    ///
+    /// This may return less than k elements, but only if there are less than
+    /// k nodes in the routing table as a whole.
+    ///
+    /// This is a key operation used in many places throughout the protocol.
+    /// There are a lot of procedures in the DHT protocol which involve locating
+    /// the closest nodes to a given a key.
+    pub fn k_closest(&self, target: BitKey, k: usize) -> Vec<Node> {
+        let mut buf = Vec::with_capacity(k);
+        let mut distance = self.this_node.id.distance(target);
+        let mut n_distance = !distance;
+        if distance == 0 {
+            buf.push(self.this_node.clone());
+        }
+        // If our distance is 0b10101, the 1s indicate the the buckets
+        // we should visit, first, from most significant to least significant,
+        // and the 0s after that, from least significant to most significant.
+        while distance != 0 && buf.len() < k {
+            let i = distance.leading_zeros();
+            self.buckets[i as usize].k_closest(&mut buf, target, k);
+            distance ^= 1 << (KEY_SIZE as u32 - i);
+        }
+        while n_distance != 0 && buf.len() < k {
+            let i = n_distance.trailing_zeros();
+            self.buckets[KEY_SIZE - 1 - i as usize].k_closest(&mut buf, target, k);
+            n_distance ^= 1 << i;
+        }
+        buf
     }
 }
 
