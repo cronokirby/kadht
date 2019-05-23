@@ -1,9 +1,78 @@
 use crate::base::{BitKey, Node};
 use crate::rand::distributions::{Distribution, Standard};
 use crate::rand::Rng;
-use std::net::IpAddr;
+use std::convert::{TryFrom, TryInto};
+use std::net::{IpAddr, SocketAddr};
 
 const BITKEY_BYTES: usize = 16;
+
+/// Represents an error when parsing out a message.
+///
+/// This is produced when we try and parse a message, and fail for
+/// some reason.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ParseError {
+    /// There were not enough bytes to parse the message
+    InsufficientLength,
+    /// The string had an invalid UTF8 format
+    InvalidString,
+    /// The type of message was unrecognized
+    UnknownMessageType,
+}
+
+fn try_bitkey_from(data: &[u8]) -> Result<BitKey, ParseError> {
+    let len = std::mem::size_of::<BitKey>();
+    let bitkey_bytes = data[..len]
+        .try_into()
+        .map_err(|_| ParseError::InsufficientLength)?;
+    Ok(BitKey(u128::from_be_bytes(bitkey_bytes)))
+}
+
+// This returns the string, and the total amount of bytes consumed
+fn try_string_from(data: &[u8]) -> Result<(String, usize), ParseError> {
+    let (head, rest) = data.split_first().ok_or(ParseError::InsufficientLength)?;
+    let byte_count = *head as usize;
+    if rest.len() < byte_count {
+        return Err(ParseError::InsufficientLength);
+    }
+    let string = String::from_utf8(rest.into()).map_err(|_| ParseError::InvalidString)?;
+    Ok((string, byte_count + 1))
+}
+
+fn try_nodes_from(data: &[u8]) -> Result<Vec<Node>, ParseError> {
+    let (head, rest) = data.split_first().ok_or(ParseError::InsufficientLength)?;
+    let capacity = *head as usize;
+    let mut buf = Vec::with_capacity(capacity);
+    let mut data = rest;
+    while buf.len() < capacity {
+        let start_len = 1 + BITKEY_BYTES;
+        if data.len() < start_len {
+            return Err(ParseError::InsufficientLength);
+        }
+        let id = try_bitkey_from(data).unwrap();
+        let ip_type = data[BITKEY_BYTES];
+        data = &data[start_len..];
+        let ip_len = if ip_type == 4 { 4 } else { 16 };
+        let end_len = ip_len + std::mem::size_of::<u16>();
+        if data.len() < end_len {
+            return Err(ParseError::InsufficientLength);
+        }
+        // The unwrapping is fine since we already checked the length
+        let ip = if ip_type == 4 {
+            let ip4_bytes: [u8; 4] = data[..ip_len].try_into().unwrap();
+            IpAddr::V4(ip4_bytes.into())
+        } else {
+            let ip16_bytes: [u8; 16] = data[..ip_len].try_into().unwrap();
+            IpAddr::V6(ip16_bytes.into())
+        };
+        let port_bytes = data[ip_len..end_len].try_into().unwrap();
+        let port = u16::from_be_bytes(port_bytes);
+        let udp_addr = SocketAddr::new(ip, port);
+        buf.push(Node { id, udp_addr });
+        data = &data[end_len..]
+    }
+    Ok(buf)
+}
 
 /// Represents a Transaction ID used to identify RPC calls
 ///
@@ -13,6 +82,17 @@ const BITKEY_BYTES: usize = 16;
 /// provides a utility for generating them when creating a message.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TransactionID(u64);
+
+impl TryFrom<&[u8]> for TransactionID {
+    type Error = ParseError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        let bytes = data[..std::mem::size_of::<u64>()]
+            .try_into()
+            .map_err(|_| ParseError::InsufficientLength)?;
+        Ok(TransactionID(u64::from_be_bytes(bytes)))
+    }
+}
 
 impl Distribution<TransactionID> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> TransactionID {
@@ -31,6 +111,24 @@ pub struct Header {
     pub node_id: BitKey,
     /// A transaction ID identifying this RPC call
     pub transaction_id: TransactionID,
+}
+
+impl TryFrom<&[u8]> for Header {
+    type Error = ParseError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        if data.len() < std::mem::size_of::<Header>() {
+            return Err(ParseError::InsufficientLength);
+        }
+        let (start, rest) = data.split_at(std::mem::size_of::<BitKey>());
+        // We know that the length is sufficient in both cases
+        let node_id = try_bitkey_from(start).unwrap();
+        let transaction_id = rest.try_into().unwrap();
+        Ok(Header {
+            node_id,
+            transaction_id,
+        })
+    }
 }
 
 /// Represents the data differing between RPC messages.
@@ -60,6 +158,46 @@ pub enum RPCPayload {
     Store(String, String),
     /// Respond to a `Store` request, confirming that it happened
     StoreResp,
+}
+
+impl TryFrom<&[u8]> for RPCPayload {
+    type Error = ParseError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        let (msg_type, rest) = data.split_first().ok_or(ParseError::InsufficientLength)?;
+        match msg_type {
+            1 => Ok(RPCPayload::Ping),
+            2 => Ok(RPCPayload::PingResp),
+            3 => {
+                let id = try_bitkey_from(rest)?;
+                Ok(RPCPayload::FindNode(id))
+            }
+            4 => {
+                let nodes = try_nodes_from(rest)?;
+                Ok(RPCPayload::FindNodeResp(nodes))
+            }
+            5 => {
+                let (key, read_count) = try_string_from(rest)?;
+                let rest = &rest[read_count..];
+                let (val, _) = try_string_from(rest)?;
+                Ok(RPCPayload::Store(key, val))
+            }
+            6 => Ok(RPCPayload::StoreResp),
+            7 => {
+                let (key, _) = try_string_from(rest)?;
+                Ok(RPCPayload::FindValue(key))
+            }
+            8 => {
+                let nodes = try_nodes_from(rest)?;
+                Ok(RPCPayload::FindValueNodes(nodes))
+            }
+            9 => {
+                let (val, _) = try_string_from(rest)?;
+                Ok(RPCPayload::FindValueResp(val))
+            }
+            _ => Err(ParseError::UnknownMessageType),
+        }
+    }
 }
 
 /// Represents an RPC message sent between two nodes.
@@ -154,6 +292,18 @@ impl Message {
                 len + 25
             }
         }
+    }
+}
+
+impl TryFrom<&[u8]> for Message {
+    type Error = ParseError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        let header = data.try_into()?;
+        // Indexing past this is safe, since we managed to parse the header
+        let data = &data[std::mem::size_of::<Header>()..];
+        let payload = data.try_into()?;
+        Ok(Message { header, payload })
     }
 }
 
