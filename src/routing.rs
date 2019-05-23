@@ -78,10 +78,10 @@ impl KBucket {
         }
         if self.data.len() < self.max_size {
             self.data.push_back(item);
-            return KBucketInsert::Inserted;
+            KBucketInsert::Inserted
         } else {
             self.waiting.push(item);
-            return KBucketInsert::Ping(self.data[0].clone());
+            KBucketInsert::Ping(self.data[0].clone())
         }
     }
 

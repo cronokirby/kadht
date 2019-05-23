@@ -346,13 +346,13 @@ fn write_nodes(nodes: Vec<Node>, mut buf: &mut [u8]) -> usize {
         buf = &mut buf[1..];
         let written = match node.udp_addr.ip() {
             IpAddr::V4(v4) => {
-                for (i, b) in v4.octets().into_iter().enumerate() {
+                for (i, b) in v4.octets().iter().enumerate() {
                     buf[i] = *b;
                 }
                 4
             }
             IpAddr::V6(v6) => {
-                for (i, b) in v6.octets().into_iter().enumerate() {
+                for (i, b) in v6.octets().iter().enumerate() {
                     buf[i] = *b;
                 }
                 16
