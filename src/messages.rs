@@ -35,7 +35,7 @@ fn try_string_from(data: &[u8]) -> Result<(String, usize), ParseError> {
     if rest.len() < byte_count {
         return Err(ParseError::InsufficientLength);
     }
-    let string = String::from_utf8(rest.into()).map_err(|_| ParseError::InvalidString)?;
+    let string = String::from_utf8(rest[..byte_count].into()).map_err(|_| ParseError::InvalidString)?;
     Ok((string, byte_count + 1))
 }
 
@@ -106,6 +106,7 @@ impl Distribution<TransactionID> for Standard {
 /// as the transaction ID identifying this message. The transaction ID
 /// is unique when this message is a call, and matches the request when
 /// this message is a response
+#[derive(Debug, PartialEq)]
 pub struct Header {
     /// The ID for the node that is sending this message
     pub node_id: BitKey,
@@ -134,6 +135,7 @@ impl TryFrom<&[u8]> for Header {
 /// Represents the data differing between RPC messages.
 ///
 /// This contains branches for both RPC requests, and RPC responses.
+#[derive(Debug, PartialEq)]
 pub enum RPCPayload {
     /// Request a Ping response from a node.
     ///
@@ -206,6 +208,7 @@ impl TryFrom<&[u8]> for RPCPayload {
 /// the sender, as well as identifying the RPC call, allowing us
 /// to link responses with requests. After the header, we have
 /// a payload identifying the specific kind of request we're dealing with.
+#[derive(Debug, PartialEq)]
 pub struct Message {
     /// This contains general metadata about this message
     pub header: Header,
@@ -473,10 +476,20 @@ mod tests {
     }
 
     #[test]
+    fn ping_req_read() {
+        assert_eq!(Ok(PING_REQ_MSG), Message::try_from(&PING_REQ_BYTES[0..]));
+    }
+
+    #[test]
     fn ping_resp_write() {
         let mut buf = [0; 0x100];
         let count = PING_RESP_MSG.write(&mut buf);
         assert_eq!(&PING_RESP_BYTES, &buf[..count]);
+    }
+
+    #[test]
+    fn ping_resp_read() {
+        assert_eq!(Ok(PING_RESP_MSG), Message::try_from(&PING_RESP_BYTES[0..]));
     }
 
     #[test]
@@ -487,10 +500,26 @@ mod tests {
     }
 
     #[test]
+    fn find_value_req_read() {
+        assert_eq!(
+            Ok(find_value_req_msg()),
+            Message::try_from(&FIND_VALUE_REQ_BYTES[0..])
+        );
+    }
+
+    #[test]
     fn find_value_resp_write() {
         let mut buf = [0; 0x100];
         let count = find_value_resp_msg().write(&mut buf);
         assert_eq!(&FIND_VALUE_RESP_BYTES, &buf[..count]);
+    }
+
+    #[test]
+    fn find_value_resp_read() {
+        assert_eq!(
+            Ok(find_value_req_msg()),
+            Message::try_from(&FIND_VALUE_REQ_BYTES[0..])
+        );
     }
 
     #[test]
@@ -501,10 +530,26 @@ mod tests {
     }
 
     #[test]
+    fn find_value_nodes_read() {
+        assert_eq!(
+            Ok(find_value_nodes_msg()),
+            Message::try_from(&FIND_VALUE_NODES_BYTES[0..])
+        );
+    }
+
+    #[test]
     fn find_node_req_write() {
         let mut buf = [0; 0x100];
         let count = FIND_NODE_REQ_MSG.write(&mut buf);
         assert_eq!(&FIND_NODE_REQ_BYTES[0..], &buf[..count]);
+    }
+
+    #[test]
+    fn find_node_req_read() {
+        assert_eq!(
+            Ok(FIND_NODE_REQ_MSG),
+            Message::try_from(&FIND_NODE_REQ_BYTES[0..])
+        );
     }
 
     #[test]
@@ -515,6 +560,14 @@ mod tests {
     }
 
     #[test]
+    fn find_node_resp_read() {
+        assert_eq!(
+            Ok(find_node_resp_msg()),
+            Message::try_from(&FIND_NODE_RESP_BYTES[0..])
+        );
+    }
+
+    #[test]
     fn store_req_write() {
         let mut buf = [0; 0x100];
         let count = store_req_msg().write(&mut buf);
@@ -522,9 +575,19 @@ mod tests {
     }
 
     #[test]
+    fn store_req_read() {
+        assert_eq!(Ok(store_req_msg()), Message::try_from(&STORE_REQ_BYTES[0..]));
+    }
+
+    #[test]
     fn store_resp_write() {
         let mut buf = [0; 0x100];
         let count = STORE_RESP_MSG.write(&mut buf);
         assert_eq!(&STORE_RESP_BYTES, &buf[..count]);
+    }
+
+    #[test]
+    fn store_resp_read() {
+        assert_eq!(Ok(STORE_RESP_MSG), Message::try_from(&STORE_RESP_BYTES[0..]));
     }
 }
