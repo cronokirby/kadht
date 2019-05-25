@@ -35,7 +35,8 @@ fn try_string_from(data: &[u8]) -> Result<(String, usize), ParseError> {
     if rest.len() < byte_count {
         return Err(ParseError::InsufficientLength);
     }
-    let string = String::from_utf8(rest[..byte_count].into()).map_err(|_| ParseError::InvalidString)?;
+    let string =
+        String::from_utf8(rest[..byte_count].into()).map_err(|_| ParseError::InvalidString)?;
     Ok((string, byte_count + 1))
 }
 
@@ -226,7 +227,11 @@ impl Message {
     /// In that case,
     pub fn create<R: Rng + ?Sized>(rng: &mut R, this_node_id: BitKey, payload: RPCPayload) -> Self {
         let transaction_id = rng.gen();
-        Self::response(transaction_id, this_node_id, payload)
+        let header = Header {
+            transaction_id,
+            node_id: this_node_id,
+        };
+        Self::response(header, payload)
     }
 
     /// Create a new message, including our own node_id, a payload, and matching a transaction ID.
@@ -237,11 +242,7 @@ impl Message {
     /// a fresh one.
     /// This can be done with
     /// [create](struct.Message.html#method.create).
-    pub fn response(transaction_id: TransactionID, node_id: BitKey, payload: RPCPayload) -> Self {
-        let header = Header {
-            node_id,
-            transaction_id,
-        };
+    pub fn response(header: Header, payload: RPCPayload) -> Self {
         Message { header, payload }
     }
 
@@ -576,7 +577,10 @@ mod tests {
 
     #[test]
     fn store_req_read() {
-        assert_eq!(Ok(store_req_msg()), Message::try_from(&STORE_REQ_BYTES[0..]));
+        assert_eq!(
+            Ok(store_req_msg()),
+            Message::try_from(&STORE_REQ_BYTES[0..])
+        );
     }
 
     #[test]
@@ -588,6 +592,9 @@ mod tests {
 
     #[test]
     fn store_resp_read() {
-        assert_eq!(Ok(STORE_RESP_MSG), Message::try_from(&STORE_RESP_BYTES[0..]));
+        assert_eq!(
+            Ok(STORE_RESP_MSG),
+            Message::try_from(&STORE_RESP_BYTES[0..])
+        );
     }
 }
