@@ -53,7 +53,11 @@ fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) 
         FindValue(key) => unimplemented!(),
         FindValueResp(key) => unimplemented!(),
         FindValueNodes(nodes) => unimplemented!(),
-        FindNode(id) => unimplemented!(),
+        FindNode(id) => {
+            let nodes = handle.table.k_closest(id, K);
+            let message = Message::response(message.header, FindNodeResp(nodes));
+            handle.send_message(message, src)
+        },
         FindNodeResp(nodes) => unimplemented!(),
         Store(key, val) => unimplemented!(),
         StoreResp => unimplemented!(),
