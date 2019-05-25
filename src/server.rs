@@ -34,7 +34,12 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
     let table = RoutingTable::new(this_node, K);
     let buf = Box::new([0; BUF_SIZE]);
     let key_store = HashMap::new();
-    let mut handle = ServerHandle { table, sock, key_store, buf };
+    let mut handle = ServerHandle {
+        table,
+        sock,
+        key_store,
+        buf,
+    };
     loop {
         let (amt, src) = handle.sock.recv_from(&mut *handle.buf)?;
         let try_message = Message::try_from(&handle.buf[..amt]);
@@ -47,6 +52,11 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
 
 fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) -> io::Result<()> {
     use RPCPayload::*;
+    let node = Node {
+        id: message.header.node_id,
+        udp_addr: src,
+    };
+    handle.table.insert(node);
     match message.payload {
         Ping => {
             let message = Message::response(message.header, PingResp);
@@ -59,25 +69,23 @@ fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) 
                     let nodes = handle.table.k_closest(BitKey::from_hash(&key), K);
                     Message::response(message.header, FindValueNodes(nodes))
                 }
-                Some(val) => {
-                    Message::response(message.header, FindValueResp(val.clone()))
-                }
+                Some(val) => Message::response(message.header, FindValueResp(val.clone())),
             };
             handle.send_message(message, src)
-        },
+        }
         FindValueResp(val) => unimplemented!(),
         FindValueNodes(nodes) => unimplemented!(),
         FindNode(id) => {
             let nodes = handle.table.k_closest(id, K);
             let message = Message::response(message.header, FindNodeResp(nodes));
             handle.send_message(message, src)
-        },
+        }
         FindNodeResp(nodes) => unimplemented!(),
         Store(key, val) => {
             handle.key_store.insert(key, val);
             let message = Message::response(message.header, StoreResp);
             handle.send_message(message, src)
-        },
+        }
         StoreResp => unimplemented!(),
     }
 }
