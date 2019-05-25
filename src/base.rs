@@ -1,6 +1,6 @@
 use crate::rand::distributions::{Distribution, Standard};
 use crate::rand::Rng;
-use crate::sha1::{Digest, Sha1};
+use crate::sha1::Sha1;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 

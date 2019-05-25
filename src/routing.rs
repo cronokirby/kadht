@@ -78,7 +78,7 @@ impl KBucket {
             KBucketInsert::Inserted
         } else {
             self.waiting.push(item);
-            KBucketInsert::Ping(self.data[0].clone())
+            KBucketInsert::Ping(self.data[0])
         }
     }
 

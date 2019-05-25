@@ -38,6 +38,7 @@ impl NodeQuery {
 
 struct Query {
     target: BitKey,
+    target_value: Option<String>,
     closest: Vec<NodeQuery>,
     transactions: HashSet<TransactionID>,
     final_k: bool,
@@ -124,7 +125,15 @@ impl ServerHandle {
                 };
                 self.send_message(message, src)
             }
-            FindValueResp(val) => Ok(()),
+            FindValueResp(_val) => {
+                if let Some(query) = &mut self.query {
+                    if query.transactions.contains(&message.header.transaction_id) {
+                        // We've found the corresponding value
+                        self.query = None;
+                    }
+                }
+                Ok(())
+            },
             FindValueNodes(nodes) => self.handle_nodes(message.header, &nodes),
             FindNode(id) => {
                 let nodes = self.table.k_closest(id, K);
@@ -160,6 +169,7 @@ impl ServerHandle {
                 if let Some(next) = query.get_closest() {
                     contact_nodes.push(next);
                 } else {
+                    // There are no nodes left to contact, and no further work can be done
                     self.query = None;
                 }
             } else if !query.final_k {
@@ -170,6 +180,7 @@ impl ServerHandle {
                     }
                 }
             } else if query.all_done() {
+                // We've finished querying the k closest nodes
                 self.query = None;
             }
         }
@@ -177,7 +188,11 @@ impl ServerHandle {
             let query = self.query.as_mut().unwrap();
             query.update_status(node.id, QueryStatus::Started);
             let target = query.target;
-            let payload = RPCPayload::FindNode(target);
+            let payload = if let Some(key) = query.target_value.clone() {
+                RPCPayload::FindValue(key)
+            } else {
+                RPCPayload::FindNode(target)
+            };
             let message = Message::create(&mut self.rng, self.table.this_node_id(), payload);
             self.send_message(message, node.udp_addr)?;
         }
