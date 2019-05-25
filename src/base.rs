@@ -1,5 +1,7 @@
 use crate::rand::distributions::{Distribution, Standard};
 use crate::rand::Rng;
+use crate::sha1::{Digest, Sha1};
+use std::convert::TryInto;
 use std::net::SocketAddr;
 
 /// How many bits are in a key identifiying a node.
@@ -55,6 +57,14 @@ impl BitKey {
     pub fn distance(self, other: BitKey) -> u128 {
         self.0 ^ other.0
     }
+
+    /// Create a Bitkey by taking the SHA1 hash of a string.
+    ///
+    /// This takes only the least significant 128 bits of the SHA1 hash.
+    pub fn from_hash(string: &str) -> Self {
+        let bytes = Sha1::from(string).digest().bytes()[4..].try_into().unwrap();
+        BitKey(u128::from_be_bytes(bytes))
+    }
 }
 
 impl Distribution<BitKey> for Standard {
@@ -96,7 +106,7 @@ impl Node {
     }
 
     /// Calculate the distance between 2 nodes, based on ID.
-    /// 
+    ///
     /// See [BitKey::distance](struct.BitKey.html#method.distance).
     pub fn distance(&self, other: &Node) -> u128 {
         self.id.distance(other.id)
@@ -114,7 +124,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn distance() {
+    fn bitkey_distance() {
         let a = BitKey(1);
         let b = BitKey(2);
         assert_eq!(3, a.distance(b));
@@ -123,5 +133,12 @@ mod tests {
         let z = BitKey(0);
         assert_eq!(a.0, z.distance(a));
         assert_eq!(b.0, z.distance(b));
+    }
+
+    #[test]
+    fn bitkey_hash() {
+        let s = "Hello World";
+        let i = u128::from_be_bytes([215,120,229,2,47,171,112,25,119,197,216,64,187,196,134,208]);
+        assert_eq!(BitKey(i), BitKey::from_hash(s));
     }
 }

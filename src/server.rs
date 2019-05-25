@@ -56,8 +56,7 @@ fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) 
         FindValue(key) => {
             let message = match handle.key_store.get(&key) {
                 None => {
-                    // Todo hash the key to get the bitkey
-                    let nodes = handle.table.k_closest(BitKey(0), K);
+                    let nodes = handle.table.k_closest(BitKey::from_hash(&key), K);
                     Message::response(message.header, FindValueNodes(nodes))
                 }
                 Some(val) => {
