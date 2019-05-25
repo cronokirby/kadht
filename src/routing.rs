@@ -1,9 +1,6 @@
 use crate::base::{BitKey, Node, KEY_SIZE};
 use std::collections::VecDeque;
 
-/// How many nodes should be active in a bucket
-const BUCKET_SIZE: usize = 20;
-
 /// Represents the result of inserting into a KBucket.
 ///
 /// Depending on the state of the bucket, we might not be able to insert
@@ -149,8 +146,8 @@ impl RoutingTable {
     /// We need to know which node is representing this instance
     /// in order to evaluate the distance between this instance and the nodes
     /// we try and insert into the routing table.
-    pub fn new(this_node: Node) -> Self {
-        let buckets = vec![KBucket::new(BUCKET_SIZE); KEY_SIZE];
+    pub fn new(this_node: Node, bucket_size: usize) -> Self {
+        let buckets = vec![KBucket::new(bucket_size); KEY_SIZE];
         RoutingTable { this_node, buckets }
     }
 
@@ -316,7 +313,7 @@ mod tests {
             id: BitKey(0),
             udp_addr,
         };
-        let mut table = RoutingTable::new(this_node);
+        let mut table = RoutingTable::new(this_node, 20);
         for k in 0..KEY_SIZE {
             let id = BitKey(1 << k);
             let node = Node { id, udp_addr };
@@ -328,7 +325,7 @@ mod tests {
     fn routing_table_closest_is_everything_when_small() {
         let max_size = 20;
         let this_node = make_node(0);
-        let mut table = RoutingTable::new(this_node);
+        let mut table = RoutingTable::new(this_node, max_size);
         let mut nodes = Vec::with_capacity(max_size as usize);
         nodes.push(this_node);
         for i in 0..(max_size - 1) {
