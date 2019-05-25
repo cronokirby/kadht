@@ -24,6 +24,46 @@ impl ServerHandle {
         self.sock.send_to(&self.buf[..amt], addr)?;
         Ok(())
     }
+
+    fn handle_message(&mut self, message: Message, src: SocketAddr) -> io::Result<()> {
+        use RPCPayload::*;
+        let node = Node {
+            id: message.header.node_id,
+            udp_addr: src,
+        };
+        self.table.insert(node);
+        match message.payload {
+            Ping => {
+                let message = Message::response(message.header, PingResp);
+                self.send_message(message, src)
+            }
+            PingResp => unimplemented!(),
+            FindValue(key) => {
+                let message = match self.key_store.get(&key) {
+                    None => {
+                        let nodes = self.table.k_closest(BitKey::from_hash(&key), K);
+                        Message::response(message.header, FindValueNodes(nodes))
+                    }
+                    Some(val) => Message::response(message.header, FindValueResp(val.clone())),
+                };
+                self.send_message(message, src)
+            }
+            FindValueResp(val) => unimplemented!(),
+            FindValueNodes(nodes) => unimplemented!(),
+            FindNode(id) => {
+                let nodes = self.table.k_closest(id, K);
+                let message = Message::response(message.header, FindNodeResp(nodes));
+                self.send_message(message, src)
+            }
+            FindNodeResp(nodes) => unimplemented!(),
+            Store(key, val) => {
+                self.key_store.insert(key, val);
+                let message = Message::response(message.header, StoreResp);
+                self.send_message(message, src)
+            }
+            StoreResp => unimplemented!(),
+        }
+    }
 }
 
 pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
@@ -45,47 +85,7 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
         let try_message = Message::try_from(&handle.buf[..amt]);
         match try_message {
             Err(e) => println!("Error parsing message from {} error: {:?}", src, e),
-            Ok(message) => handle_message(&mut handle, message, src)?,
+            Ok(message) => handle.handle_message(message, src)?,
         }
-    }
-}
-
-fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) -> io::Result<()> {
-    use RPCPayload::*;
-    let node = Node {
-        id: message.header.node_id,
-        udp_addr: src,
-    };
-    handle.table.insert(node);
-    match message.payload {
-        Ping => {
-            let message = Message::response(message.header, PingResp);
-            handle.send_message(message, src)
-        }
-        PingResp => unimplemented!(),
-        FindValue(key) => {
-            let message = match handle.key_store.get(&key) {
-                None => {
-                    let nodes = handle.table.k_closest(BitKey::from_hash(&key), K);
-                    Message::response(message.header, FindValueNodes(nodes))
-                }
-                Some(val) => Message::response(message.header, FindValueResp(val.clone())),
-            };
-            handle.send_message(message, src)
-        }
-        FindValueResp(val) => unimplemented!(),
-        FindValueNodes(nodes) => unimplemented!(),
-        FindNode(id) => {
-            let nodes = handle.table.k_closest(id, K);
-            let message = Message::response(message.header, FindNodeResp(nodes));
-            handle.send_message(message, src)
-        }
-        FindNodeResp(nodes) => unimplemented!(),
-        Store(key, val) => {
-            handle.key_store.insert(key, val);
-            let message = Message::response(message.header, StoreResp);
-            handle.send_message(message, src)
-        }
-        StoreResp => unimplemented!(),
     }
 }
