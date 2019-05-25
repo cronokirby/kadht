@@ -1,4 +1,4 @@
-use crate::base::Node;
+use crate::base::{BitKey, Node};
 use crate::messages::{Message, RPCPayload};
 use crate::rand::thread_rng;
 use crate::routing::RoutingTable;
@@ -53,8 +53,20 @@ fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) 
             handle.send_message(message, src)
         }
         PingResp => unimplemented!(),
-        FindValue(key) => unimplemented!(),
-        FindValueResp(key) => unimplemented!(),
+        FindValue(key) => {
+            let message = match handle.key_store.get(&key) {
+                None => {
+                    // Todo hash the key to get the bitkey
+                    let nodes = handle.table.k_closest(BitKey(0), K);
+                    Message::response(message.header, FindValueNodes(nodes))
+                }
+                Some(val) => {
+                    Message::response(message.header, FindValueResp(val.clone()))
+                }
+            };
+            handle.send_message(message, src)
+        },
+        FindValueResp(val) => unimplemented!(),
         FindValueNodes(nodes) => unimplemented!(),
         FindNode(id) => {
             let nodes = handle.table.k_closest(id, K);
