@@ -198,6 +198,8 @@ impl RoutingTable {
     ///
     /// This may return less than k elements, but only if there are less than
     /// k nodes in the routing table as a whole.
+    /// 
+    /// If
     ///
     /// This is a key operation used in many places throughout the protocol.
     /// There are a lot of procedures in the DHT protocol which involve locating
@@ -206,9 +208,6 @@ impl RoutingTable {
         let mut buf = Vec::with_capacity(k);
         let mut distance = self.this_node.id.distance(target);
         let mut n_distance = !distance;
-        if distance == 0 {
-            buf.push(self.this_node.clone());
-        }
         // If our distance is 0b10101, the 1s indicate the the buckets
         // we should visit, first, from most significant to least significant,
         // and the 0s after that, from least significant to most significant.
@@ -216,6 +215,9 @@ impl RoutingTable {
             let i = distance.leading_zeros();
             self.buckets[i as usize].k_closest(&mut buf, target, k);
             distance ^= 1 << (KEY_SIZE as u32 - i);
+        }
+        if buf.len() < k {
+            buf.push(self.this_node.clone());
         }
         while n_distance != 0 && buf.len() < k {
             let i = n_distance.trailing_zeros();
@@ -292,5 +294,22 @@ mod tests {
             let node = Node { id, udp_addr };
             assert_eq!(KBucketInsert::Inserted, table.insert(node));
         }
+    }
+
+    #[test]
+    fn routing_table_closest_is_everything_when_small() {
+        let max_size = 20;
+        let this_node = make_node(0);
+        let mut table = RoutingTable::new(this_node.clone());
+        let mut nodes = Vec::with_capacity(max_size as usize);
+        nodes.push(this_node.clone());
+        for i in 0..(max_size - 1) {
+            let node = make_node(1 << i);
+            nodes.push(node.clone());
+            table.insert(node);
+        }
+        assert_eq!(nodes, table.k_closest(this_node.id, max_size as usize));
+        assert_eq!(Vec::<Node>::new(), table.k_closest(this_node.id, 0));
+        assert_eq!(vec![this_node.clone()], table.k_closest(this_node.id, 1));
     }
 }
