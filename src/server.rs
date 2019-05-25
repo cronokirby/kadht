@@ -2,7 +2,7 @@ use crate::base::{BitKey, Node};
 use crate::messages::{Header, Message, RPCPayload, TransactionID};
 use crate::rand::rngs::ThreadRng;
 use crate::rand::thread_rng;
-use crate::routing::RoutingTable;
+use crate::routing::{KBucketInsert, RoutingTable};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
@@ -105,7 +105,11 @@ impl ServerHandle {
             id: message.header.node_id,
             udp_addr: src,
         };
-        self.table.insert(node);
+        if let KBucketInsert::Ping(to_ping) = self.table.insert(node) {
+            let message = Message::create(&mut self.rng, self.table.this_node_id(), Ping);
+            self.keep_alives.insert(message.header.transaction_id);
+            self.send_message(message, to_ping.udp_addr)?;
+        }
         match message.payload {
             Ping => {
                 let message = Message::response(message.header, PingResp);
