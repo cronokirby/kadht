@@ -115,7 +115,7 @@ impl KBucket {
         for node in scratch.into_iter().take(k) {
             buf.push(node);
         }
-        self.data.len()
+        self.data.len().min(k)
     }
 }
 
@@ -198,30 +198,58 @@ impl RoutingTable {
     ///
     /// This may return less than k elements, but only if there are less than
     /// k nodes in the routing table as a whole.
-    /// 
-    /// If
+    ///
+    /// This will include the node for this instance as well, if it's close enough.
     ///
     /// This is a key operation used in many places throughout the protocol.
     /// There are a lot of procedures in the DHT protocol which involve locating
     /// the closest nodes to a given a key.
     pub fn k_closest(&self, target: BitKey, k: usize) -> Vec<Node> {
         let mut buf = Vec::with_capacity(k);
+        // The following operations seem like gibberish without a bit of explanation, so
+        // let's try and do a bit of that. Let's denote by "t" our target node,
+        // by "this" the node for this instance, and "a" some given other node.
+        // First let's remember that since d(a, t) = a ^ t.
+        // Other useful properties of ^ are that for any x, x ^ x = 0, and x ^ 0 = x.
+        // Thus, a ^ t = a ^ this ^ this ^ t = d(a, this) ^ d(t, this).
+        // Thankfully we have already organised our nodes into buckets based on the most
+        // significant bit of d(a, this).
+        // We can separate nodes into 2 categories,
+        // those such that d(a, this) ^ d(t, this) < d(t, this),
+        // and those such that d(a, this) ^ d(t, this) >= d(t, this).
+        // We can actually tell which category a node is in based on which bucket the node is in!
+        // Each bucket corresponds to a specific bit, with bucket 0 being the MSB. Each node
+        // in that bucket has a d(a, this) such that that bit is 1, and all more significant bits are 0.
+        // If a specific bit "i" in d(t, this) is 1,
+        // then the nodes in the corresponding bucket belong to the first category,
+        // if it is 0, then the nodes in that bucket correspond to the second.
+        // For example if d(t, this) is 0101, then the nodes in the second bucket have a d(a, this)
+        // that looks like 01XX, which only decreases d(t, this). Furthermore,
+        // the more significant the bit for nodes in the first category,
+        // the more it decreases the distance, whereas for the second category this is flipped:
+        // the more significant, the further away nodes in that bucket are from t.
+        //
+        // Our algorithm thus consists of looking at the bits in d(t, this),
+        // and pulling from the buckets corresponding to the 1 bits,
+        // in most to least significant order, then looking at this,
+        // then going over the 0 bits in least to most significant order.
         let mut distance = self.this_node.id.distance(target);
         let mut n_distance = !distance;
-        // If our distance is 0b10101, the 1s indicate the the buckets
-        // we should visit, first, from most significant to least significant,
-        // and the 0s after that, from least significant to most significant.
-        while distance != 0 && buf.len() < k {
+        let mut to_take = k;
+        while distance != 0 && to_take > 0 {
             let i = distance.leading_zeros();
-            self.buckets[i as usize].k_closest(&mut buf, target, k);
+            let bucket = i as usize;
+            to_take -= self.buckets[bucket].k_closest(&mut buf, target, to_take);
             distance ^= 1 << (KEY_SIZE as u32 - i);
         }
-        if buf.len() < k {
+        if to_take > 0 {
             buf.push(self.this_node);
+            to_take -= 1;
         }
-        while n_distance != 0 && buf.len() < k {
+        while n_distance != 0 && to_take > 0 {
             let i = n_distance.trailing_zeros();
-            self.buckets[KEY_SIZE - 1 - i as usize].k_closest(&mut buf, target, k);
+            let bucket = KEY_SIZE - 1 - i as usize;
+            to_take -= self.buckets[bucket].k_closest(&mut buf, target, to_take);
             n_distance ^= 1 << i;
         }
         buf
