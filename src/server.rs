@@ -2,6 +2,7 @@ use crate::base::Node;
 use crate::messages::{Message, RPCPayload};
 use crate::rand::thread_rng;
 use crate::routing::RoutingTable;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
@@ -13,6 +14,7 @@ const BUF_SIZE: usize = 2048;
 struct ServerHandle {
     table: RoutingTable,
     sock: UdpSocket,
+    key_store: HashMap<String, String>,
     buf: Box<[u8]>,
 }
 
@@ -31,7 +33,8 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
     let this_node = Node::create(&mut rng, this_addr);
     let table = RoutingTable::new(this_node, K);
     let buf = Box::new([0; BUF_SIZE]);
-    let mut handle = ServerHandle { table, sock, buf };
+    let key_store = HashMap::new();
+    let mut handle = ServerHandle { table, sock, key_store, buf };
     loop {
         let (amt, src) = handle.sock.recv_from(&mut *handle.buf)?;
         let try_message = Message::try_from(&handle.buf[..amt]);
@@ -59,7 +62,11 @@ fn handle_message(handle: &mut ServerHandle, message: Message, src: SocketAddr) 
             handle.send_message(message, src)
         },
         FindNodeResp(nodes) => unimplemented!(),
-        Store(key, val) => unimplemented!(),
+        Store(key, val) => {
+            handle.key_store.insert(key, val);
+            let message = Message::response(message.header, StoreResp);
+            handle.send_message(message, src)
+        },
         StoreResp => unimplemented!(),
     }
 }
