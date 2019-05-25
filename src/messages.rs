@@ -81,7 +81,7 @@ fn try_nodes_from(data: &[u8]) -> Result<Vec<Node>, ParseError> {
 /// to requests, as well as to provide some mitigation against IP spoofing.
 /// Transaction IDs can be generated randomly, but the Message struct already
 /// provides a utility for generating them when creating a message.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct TransactionID(u64);
 
 impl TryFrom<&[u8]> for TransactionID {

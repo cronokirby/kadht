@@ -151,6 +151,10 @@ impl RoutingTable {
         RoutingTable { this_node, buckets }
     }
 
+    pub fn this_node_id(&self) -> BitKey {
+        self.this_node.id
+    }
+
     /// Insert a node from the routing table.
     ///
     /// See
