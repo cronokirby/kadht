@@ -63,7 +63,7 @@ impl Distribution<BitKey> for Standard {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 /// Represents the information we keep for every node.
 ///
 /// These elements are inserted into our routing table,

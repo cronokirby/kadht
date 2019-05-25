@@ -217,7 +217,7 @@ impl RoutingTable {
             distance ^= 1 << (KEY_SIZE as u32 - i);
         }
         if buf.len() < k {
-            buf.push(self.this_node.clone());
+            buf.push(self.this_node);
         }
         while n_distance != 0 && buf.len() < k {
             let i = n_distance.trailing_zeros();
@@ -300,16 +300,16 @@ mod tests {
     fn routing_table_closest_is_everything_when_small() {
         let max_size = 20;
         let this_node = make_node(0);
-        let mut table = RoutingTable::new(this_node.clone());
+        let mut table = RoutingTable::new(this_node);
         let mut nodes = Vec::with_capacity(max_size as usize);
-        nodes.push(this_node.clone());
+        nodes.push(this_node);
         for i in 0..(max_size - 1) {
             let node = make_node(1 << i);
-            nodes.push(node.clone());
+            nodes.push(node);
             table.insert(node);
         }
         assert_eq!(nodes, table.k_closest(this_node.id, max_size as usize));
         assert_eq!(Vec::<Node>::new(), table.k_closest(this_node.id, 0));
-        assert_eq!(vec![this_node.clone()], table.k_closest(this_node.id, 1));
+        assert_eq!(vec![this_node], table.k_closest(this_node.id, 1));
     }
 }
