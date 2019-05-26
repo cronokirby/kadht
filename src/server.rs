@@ -68,8 +68,12 @@ impl Query {
     }
 
     fn get_closest(&self) -> Option<Node> {
-        let node_q = self.closest.get(0)?;
-        Some(node_q.node)
+        for node in &self.closest {
+            if node.status == QueryStatus::Empty {
+                return Some(node.node)
+            }
+        }
+        None
     }
 
     fn all_done(&self) -> bool {
