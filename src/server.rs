@@ -3,11 +3,11 @@ use crate::messages::{Header, Message, RPCPayload, TransactionID};
 use crate::rand::rngs::ThreadRng;
 use crate::rand::thread_rng;
 use crate::routing::{KBucketInsert, RoutingTable};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 // How big to make our buckets
 const K: usize = 20;
@@ -35,6 +35,18 @@ impl TransactionTable {
 
     fn remove(&mut self, transaction_id: TransactionID) -> bool {
         self.transactions.remove(&transaction_id).is_some()
+    }
+
+    fn remove_stale(&mut self, buf: &mut Vec<BitKey>) {
+        let now = Instant::now();
+        self.transactions.retain(|_, (then, key)| {
+            if now.duration_since(*then) > Duration::new(5, 0) {
+                buf.push(*key);
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -233,6 +245,17 @@ impl ServerHandle {
         }
         Ok(())
     }
+
+    pub fn remove_stale(&mut self) {
+        let mut buf = Vec::new();
+        self.keep_alives.remove_stale(&mut buf);
+        if let Some(query) = &mut self.query {
+            query.transactions.remove_stale(&mut buf);
+        }
+        for &key in &buf {
+            self.table.remove(key);
+        }
+    }
 }
 
 pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
@@ -258,5 +281,6 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
             Err(e) => println!("Error parsing message from {} error: {:?}", src, e),
             Ok(message) => handle.handle_message(message, src)?,
         }
+        handle.remove_stale()
     }
 }
