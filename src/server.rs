@@ -83,11 +83,16 @@ struct Query {
 }
 
 impl Query {
+    fn find_node(&self, key: BitKey) -> Result<usize, usize> {
+        let distance = key.distance(self.target);
+        let cmp_distance = |x: &NodeQuery| x.distance.cmp(&distance);
+        self.closest.binary_search_by(cmp_distance)
+    }
+
     fn add_node(&mut self, node: Node) -> bool {
-        let node_q = NodeQuery::new(node, self.target);
-        let cmp_distance = |x: &NodeQuery| x.distance.cmp(&node_q.distance);
-        if let Err(index) = self.closest.binary_search_by(cmp_distance) {
-            self.closest.insert(index, node_q);
+        if let Err(index) = self.find_node(node.id) {
+            self.closest
+                .insert(index, NodeQuery::new(node, self.target));
             if self.closest.len() > K {
                 self.closest.pop();
             }
@@ -98,10 +103,14 @@ impl Query {
     }
 
     fn update_status(&mut self, target: BitKey, status: QueryStatus) {
-        for node in &mut self.closest {
-            if node.node.id == target {
-                node.status = status;
-            }
+        if let Ok(index) = self.find_node(target) {
+            self.closest[index].status = status;
+        }
+    }
+
+    fn remove(&mut self, key: BitKey) {
+        if let Ok(index) = self.find_node(key) {
+            self.closest.remove(index);
         }
     }
 
@@ -231,30 +240,45 @@ impl ServerHandle {
             }
         }
         for node in contact_nodes {
-            let query = self.query.as_mut().unwrap();
-            query.update_status(node.id, QueryStatus::Started);
-            let target = query.target;
-            let payload = if let Some(key) = query.target_value.clone() {
-                RPCPayload::FindValue(key)
-            } else {
-                RPCPayload::FindNode(target)
-            };
-            let message = Message::create(&mut self.rng, self.table.this_node_id(), payload);
-            query.transactions.insert(message.header);
-            self.send_message(message, node.udp_addr)?;
+            self.continue_query(node)?;
         }
         Ok(())
     }
 
-    pub fn remove_stale(&mut self) {
+    fn continue_query(&mut self, node: Node) -> io::Result<()> {
+        let query = self.query.as_mut().unwrap();
+        query.update_status(node.id, QueryStatus::Started);
+        let target = query.target;
+        let payload = if let Some(key) = query.target_value.clone() {
+            RPCPayload::FindValue(key)
+        } else {
+            RPCPayload::FindNode(target)
+        };
+        let message = Message::create(&mut self.rng, self.table.this_node_id(), payload);
+        query.transactions.insert(message.header);
+        self.send_message(message, node.udp_addr)
+    }
+
+    fn remove_stale(&mut self) -> io::Result<()> {
         let mut buf = Vec::new();
-        self.keep_alives.remove_stale(&mut buf);
         if let Some(query) = &mut self.query {
             query.transactions.remove_stale(&mut buf);
+            for &key in &buf {
+                query.remove(key);
+            }
+            if query.all_done() {
+                self.query = None;
+            } else if !query.final_k {
+                if let Some(node) = query.get_closest() {
+                    self.continue_query(node)?;
+                }
+            }
         }
+        self.keep_alives.remove_stale(&mut buf);
         for &key in &buf {
             self.table.remove(key);
         }
+        Ok(())
     }
 }
 
@@ -281,6 +305,6 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
             Err(e) => println!("Error parsing message from {} error: {:?}", src, e),
             Ok(message) => handle.handle_message(message, src)?,
         }
-        handle.remove_stale()
+        handle.remove_stale()?;
     }
 }
