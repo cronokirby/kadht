@@ -7,11 +7,56 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use std::sync::mpsc::{channel, Receiver, RecvError, SendError, Sender};
 use std::time::{Duration, Instant};
 
 // How big to make our buckets
 const K: usize = 20;
 const BUF_SIZE: usize = 2048;
+
+pub enum ToServerMsg {
+    Store(String),
+    Get(String),
+}
+
+pub enum FromServerMsg {
+    StoreResp,
+    GetResp(String),
+}
+
+pub struct ServerSender {
+    to: Sender<ToServerMsg>,
+    from: Receiver<FromServerMsg>,
+}
+
+impl ServerSender {
+    pub fn send(&self, msg: ToServerMsg) -> Result<(), SendError<ToServerMsg>> {
+        self.to.send(msg)
+    }
+
+    pub fn receive(&self) -> Result<FromServerMsg, RecvError> {
+        self.from.recv()
+    }
+}
+
+pub struct ServerReceiver {
+    from: Receiver<ToServerMsg>,
+    to: Sender<FromServerMsg>,
+}
+
+pub fn make_server_comms() -> (ServerSender, ServerReceiver) {
+    let (sender_to, receiver_to) = channel();
+    let (sender_from, receiver_from) = channel();
+    let sender = ServerSender {
+        to: sender_to,
+        from: receiver_from,
+    };
+    let receiver = ServerReceiver {
+        to: sender_from,
+        from: receiver_to,
+    };
+    (sender, receiver)
+}
 
 struct TransactionTable {
     transactions: HashMap<TransactionID, (Instant, BitKey)>,
@@ -134,8 +179,9 @@ impl Query {
 }
 
 struct ServerHandle {
-    table: RoutingTable,
     sock: UdpSocket,
+    receiver: ServerReceiver,
+    table: RoutingTable,
     key_store: HashMap<String, String>,
     query: Option<Query>,
     keep_alives: TransactionTable,
@@ -282,7 +328,7 @@ impl ServerHandle {
     }
 }
 
-pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
+pub fn run_server<S: ToSocketAddrs>(receiver: ServerReceiver, address: S) -> io::Result<()> {
     let mut rng = thread_rng();
     let sock = UdpSocket::bind(address)?;
     let this_addr = sock.local_addr()?;
@@ -291,6 +337,7 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
     let buf = Box::new([0; BUF_SIZE]);
     let mut handle = ServerHandle {
         table,
+        receiver,
         sock,
         key_store: HashMap::new(),
         query: None,
