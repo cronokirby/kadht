@@ -21,7 +21,7 @@ pub enum ToServerMsg {
 
 pub enum FromServerMsg {
     StoreResp,
-    GetResp(String),
+    GetResp(Option<String>),
 }
 
 pub struct ServerSender {
@@ -326,6 +326,23 @@ impl ServerHandle {
         }
         Ok(())
     }
+
+    fn handle_client(&mut self) -> io::Result<()> {
+        match self.receiver.from.try_recv() {
+            Ok(ToServerMsg::Get(key)) => {
+                let value = self.key_store.get(&key).cloned();
+                let msg = FromServerMsg::GetResp(value);
+                self.receiver.to.send(msg).expect("Couldn't send messages to client");
+                Ok(())
+            },
+            Ok(ToServerMsg::Store(_key)) => {
+                let msg = FromServerMsg::StoreResp;
+                self.receiver.to.send(msg).expect("Couldn't send messages to client");
+                Ok(())
+            },
+            _ => Ok(())
+        }
+    }
 }
 
 pub fn run_server<S: ToSocketAddrs>(receiver: ServerReceiver, address: S) -> io::Result<()> {
@@ -345,13 +362,17 @@ pub fn run_server<S: ToSocketAddrs>(receiver: ServerReceiver, address: S) -> io:
         rng,
         buf,
     };
+    let timeout = Duration::from_millis(400);
+    handle.sock.set_read_timeout(Some(timeout))?;
     loop {
-        let (amt, src) = handle.sock.recv_from(&mut *handle.buf)?;
-        let try_message = Message::try_from(&handle.buf[..amt]);
-        match try_message {
-            Err(e) => println!("Error parsing message from {} error: {:?}", src, e),
-            Ok(message) => handle.handle_message(message, src)?,
+        if let Ok((amt, src)) = handle.sock.recv_from(&mut *handle.buf) {
+            let try_message = Message::try_from(&handle.buf[..amt]);
+            match try_message {
+                Err(e) => println!("Error parsing message from {} error: {:?}", src, e),
+                Ok(message) => handle.handle_message(message, src)?,
+            }
         }
         handle.remove_stale()?;
+        handle.handle_client()?;
     }
 }
