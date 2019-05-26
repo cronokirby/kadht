@@ -92,8 +92,8 @@ impl KBucket {
     /// Removing a node also has the effect of inserting the node we
     /// tried to insert most recently, but couldn't because of the lack of
     /// dead nodes.
-    pub fn remove(&mut self, item: &Node) {
-        let existing = self.data.iter().position(|x| x == item);
+    pub fn remove(&mut self, id: BitKey) {
+        let existing = self.data.iter().position(|x| x.id == id);
         if let Some(index) = existing {
             self.data.remove(index);
             if let Some(new) = self.waiting.pop() {
@@ -186,13 +186,13 @@ impl RoutingTable {
     /// which conditions this operation should be executed.
     ///
     /// This does nothing the node for this instance is passed.
-    pub fn remove(&mut self, node: &Node) {
-        if self.this_node == *node {
+    pub fn remove(&mut self, id: BitKey) {
+        if self.this_node.id == id {
             return;
         }
-        let distance = self.this_node.distance(node);
+        let distance = self.this_node.id.distance(id);
         let i = distance.leading_zeros() as usize;
-        self.buckets[i].remove(node)
+        self.buckets[i].remove(id);
     }
 
     /// Find the k_closest elements to the target key in the routing table.
@@ -305,7 +305,7 @@ mod tests {
             bucket.insert(node);
         }
         bucket.insert(make_node(max_size as u128));
-        bucket.remove(&make_node(0));
+        bucket.remove(BitKey(0));
         assert_eq!(Some(make_node(1)), bucket.data.pop_front());
         assert_eq!(Some(make_node(max_size as u128)), bucket.data.pop_back());
     }
