@@ -14,11 +14,13 @@ use std::time::{Duration, Instant};
 const K: usize = 20;
 const BUF_SIZE: usize = 2048;
 
+#[derive(Debug)]
 pub enum ToServerMsg {
-    Store(String),
+    Store(String, String),
     Get(String),
 }
 
+#[derive(Debug)]
 pub enum FromServerMsg {
     StoreResp,
     GetResp(Option<String>),
@@ -335,7 +337,7 @@ impl ServerHandle {
                 self.receiver.to.send(msg).expect("Couldn't send messages to client");
                 Ok(())
             },
-            Ok(ToServerMsg::Store(_key)) => {
+            Ok(ToServerMsg::Store(_key, _v)) => {
                 let msg = FromServerMsg::StoreResp;
                 self.receiver.to.send(msg).expect("Couldn't send messages to client");
                 Ok(())
