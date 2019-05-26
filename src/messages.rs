@@ -107,7 +107,7 @@ impl Distribution<TransactionID> for Standard {
 /// as the transaction ID identifying this message. The transaction ID
 /// is unique when this message is a call, and matches the request when
 /// this message is a response
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Header {
     /// The ID for the node that is sending this message
     pub node_id: BitKey,

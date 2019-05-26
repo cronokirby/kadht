@@ -7,10 +7,36 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
+use std::time::Instant;
 
 // How big to make our buckets
 const K: usize = 20;
 const BUF_SIZE: usize = 2048;
+
+struct TransactionTable {
+    transactions: HashMap<TransactionID, (Instant, BitKey)>,
+}
+
+impl TransactionTable {
+    fn new() -> Self {
+        TransactionTable {
+            transactions: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, header: Header) {
+        let expiration = (Instant::now(), header.node_id);
+        self.transactions.insert(header.transaction_id, expiration);
+    }
+
+    fn contains(&self, transaction_id: TransactionID) -> bool {
+        self.transactions.contains_key(&transaction_id)
+    }
+
+    fn remove(&mut self, transaction_id: TransactionID) -> bool {
+        self.transactions.remove(&transaction_id).is_some()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum QueryStatus {
@@ -40,7 +66,7 @@ struct Query {
     target: BitKey,
     target_value: Option<String>,
     closest: Vec<NodeQuery>,
-    transactions: HashSet<TransactionID>,
+    transactions: TransactionTable,
     final_k: bool,
 }
 
@@ -70,7 +96,7 @@ impl Query {
     fn get_closest(&self) -> Option<Node> {
         for node in &self.closest {
             if node.status == QueryStatus::Empty {
-                return Some(node.node)
+                return Some(node.node);
             }
         }
         None
@@ -91,7 +117,7 @@ struct ServerHandle {
     sock: UdpSocket,
     key_store: HashMap<String, String>,
     query: Option<Query>,
-    keep_alives: HashSet<TransactionID>,
+    keep_alives: TransactionTable,
     rng: ThreadRng,
     buf: Box<[u8]>,
 }
@@ -111,7 +137,7 @@ impl ServerHandle {
         };
         if let KBucketInsert::Ping(to_ping) = self.table.insert(node) {
             let message = Message::create(&mut self.rng, self.table.this_node_id(), Ping);
-            self.keep_alives.insert(message.header.transaction_id);
+            self.keep_alives.insert(message.header);
             self.send_message(message, to_ping.udp_addr)?;
         }
         match message.payload {
@@ -120,7 +146,7 @@ impl ServerHandle {
                 self.send_message(message, src)
             }
             PingResp => {
-                self.keep_alives.remove(&message.header.transaction_id);
+                self.keep_alives.remove(message.header.transaction_id);
                 Ok(())
             }
             FindValue(key) => {
@@ -135,13 +161,13 @@ impl ServerHandle {
             }
             FindValueResp(_val) => {
                 if let Some(query) = &mut self.query {
-                    if query.transactions.contains(&message.header.transaction_id) {
+                    if query.transactions.contains(message.header.transaction_id) {
                         // We've found the corresponding value
                         self.query = None;
                     }
                 }
                 Ok(())
-            },
+            }
             FindValueNodes(nodes) => self.handle_nodes(message.header, &nodes),
             FindNode(id) => {
                 let nodes = self.table.k_closest(id, K);
@@ -155,7 +181,7 @@ impl ServerHandle {
                 self.send_message(message, src)
             }
             StoreResp => {
-                self.keep_alives.remove(&message.header.transaction_id);
+                self.keep_alives.remove(message.header.transaction_id);
                 Ok(())
             }
         }
@@ -165,7 +191,7 @@ impl ServerHandle {
         let mut contact_nodes = Vec::new();
         if let Some(query) = &mut self.query {
             // We simply ignore this transaction if we didn't create it
-            if !query.transactions.remove(&header.transaction_id) {
+            if !query.transactions.remove(header.transaction_id) {
                 return Ok(());
             }
             let mut added = false;
@@ -202,6 +228,7 @@ impl ServerHandle {
                 RPCPayload::FindNode(target)
             };
             let message = Message::create(&mut self.rng, self.table.this_node_id(), payload);
+            query.transactions.insert(message.header);
             self.send_message(message, node.udp_addr)?;
         }
         Ok(())
@@ -220,7 +247,7 @@ pub fn run_server<S: ToSocketAddrs>(address: S) -> io::Result<()> {
         sock,
         key_store: HashMap::new(),
         query: None,
-        keep_alives: HashSet::new(),
+        keep_alives: TransactionTable::new(),
         rng,
         buf,
     };
