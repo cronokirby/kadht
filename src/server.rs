@@ -97,6 +97,21 @@ impl TransactionTable {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum QueryIntention {
+    Store(String, String),
+    Get(String),
+}
+
+impl QueryIntention {
+    fn key_to_find(&self) -> Option<String> {
+        match self {
+            QueryIntention::Store(_, _) => None,
+            QueryIntention::Get(key) => Some(key.clone()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum QueryStatus {
     Empty,
@@ -123,13 +138,27 @@ impl NodeQuery {
 
 struct Query {
     target: BitKey,
-    target_value: Option<String>,
+    intention: QueryIntention,
     closest: Vec<NodeQuery>,
     transactions: TransactionTable,
     final_k: bool,
 }
 
 impl Query {
+    fn new(intention: QueryIntention) -> Self {
+        let key = match &intention {
+            QueryIntention::Store(key, _) => key,
+            QueryIntention::Get(key) => key,
+        };
+        Query {
+            target: BitKey::from_hash(&key),
+            intention,
+            closest: Vec::with_capacity(K),
+            transactions: TransactionTable::new(),
+            final_k: false,
+        }
+    }
+
     fn find_node(&self, key: BitKey) -> Result<usize, usize> {
         let distance = key.distance(self.target);
         let cmp_distance = |x: &NodeQuery| x.distance.cmp(&distance);
@@ -297,7 +326,7 @@ impl ServerHandle {
         let query = self.query.as_mut().unwrap();
         query.update_status(node.id, QueryStatus::Started);
         let target = query.target;
-        let payload = if let Some(key) = query.target_value.clone() {
+        let payload = if let Some(key) = query.intention.key_to_find() {
             RPCPayload::FindValue(key)
         } else {
             RPCPayload::FindNode(target)
@@ -334,15 +363,15 @@ impl ServerHandle {
             Ok(ToServerMsg::Get(key)) => {
                 let value = self.key_store.get(&key).cloned();
                 let msg = FromServerMsg::GetResp(value);
-                self.receiver.to.send(msg).expect("Couldn't send messages to client");
+                self.receiver.to.send(msg).unwrap();
                 Ok(())
-            },
+            }
             Ok(ToServerMsg::Store(_key, _v)) => {
                 let msg = FromServerMsg::StoreResp;
-                self.receiver.to.send(msg).expect("Couldn't send messages to client");
+                self.receiver.to.send(msg).unwrap();
                 Ok(())
-            },
-            _ => Ok(())
+            }
+            _ => Ok(()),
         }
     }
 }
