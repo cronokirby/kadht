@@ -257,10 +257,12 @@ impl ServerHandle {
                 };
                 self.send_message(message, src)
             }
-            FindValueResp(_val) => {
+            FindValueResp(val) => {
                 if let Some(query) = &mut self.query {
                     if query.transactions.contains(message.header.transaction_id) {
                         // We've found the corresponding value
+                        let msg = FromServerMsg::GetResp(Some(val));
+                        self.receiver.to.send(msg).unwrap();
                         self.query = None;
                     }
                 }
@@ -302,7 +304,7 @@ impl ServerHandle {
                     contact_nodes.push(next);
                 } else {
                     // There are no nodes left to contact, and no further work can be done
-                    self.query = None;
+                    self.finalize_query()?;
                 }
             } else if !query.final_k {
                 query.final_k = true;
@@ -313,7 +315,7 @@ impl ServerHandle {
                 }
             } else if query.all_done() {
                 // We've finished querying the k closest nodes
-                self.query = None;
+                self.finalize_query()?;
             }
         }
         for node in contact_nodes {
@@ -336,6 +338,29 @@ impl ServerHandle {
         self.send_message(message, node.udp_addr)
     }
 
+    fn finalize_query(&mut self) -> io::Result<()> {
+        if let Some(query) = &self.query {
+            match &query.intention {
+                QueryIntention::Get(_) => {
+                    let msg = FromServerMsg::GetResp(None);
+                    self.receiver.to.send(msg).unwrap();
+                }
+                QueryIntention::Store(key, val) => {
+                    let msg = FromServerMsg::StoreResp;
+                    for node in &query.closest {
+                        let payload = RPCPayload::Store(key.clone(), val.clone());
+                        let msg = Message::create(&mut self.rng, node.node.id, payload);
+                        let amt = msg.write(&mut *self.buf);
+                        self.sock.send_to(&self.buf[..amt], node.node.udp_addr)?;
+                    }
+                    self.receiver.to.send(msg).unwrap();
+                }
+            }
+        }
+        self.query = None;
+        Ok(())
+    }
+
     fn remove_stale(&mut self) -> io::Result<()> {
         let mut buf = Vec::new();
         if let Some(query) = &mut self.query {
@@ -344,7 +369,7 @@ impl ServerHandle {
                 query.remove(key);
             }
             if query.all_done() {
-                self.query = None;
+                self.finalize_query()?;
             } else if !query.final_k {
                 if let Some(node) = query.get_closest() {
                     self.continue_query(node)?;
@@ -374,8 +399,8 @@ impl ServerHandle {
                     self.continue_query(nodes[0])
                 }
             },
-            Ok(ToServerMsg::Store(_key, _v)) => {
-                let mut query = Query::new(QueryIntention::Get(key));
+            Ok(ToServerMsg::Store(key, val)) => {
+                let mut query = Query::new(QueryIntention::Store(key, val));
                 let nodes = self.table.k_closest(query.target, K);
                 query.add_node(nodes[0]);
                 self.query = Some(query);
