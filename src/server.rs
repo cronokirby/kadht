@@ -360,16 +360,26 @@ impl ServerHandle {
 
     fn handle_client(&mut self) -> io::Result<()> {
         match self.receiver.from.try_recv() {
-            Ok(ToServerMsg::Get(key)) => {
-                let value = self.key_store.get(&key).cloned();
-                let msg = FromServerMsg::GetResp(value);
-                self.receiver.to.send(msg).unwrap();
-                Ok(())
-            }
+            Ok(ToServerMsg::Get(key)) => match self.key_store.get(&key).cloned() {
+                Some(val) => {
+                    let msg = FromServerMsg::GetResp(Some(val));
+                    self.receiver.to.send(msg).unwrap();
+                    Ok(())
+                }
+                None => {
+                    let mut query = Query::new(QueryIntention::Get(key));
+                    let nodes = self.table.k_closest(query.target, K);
+                    query.add_node(nodes[0]);
+                    self.query = Some(query);
+                    self.continue_query(nodes[0])
+                }
+            },
             Ok(ToServerMsg::Store(_key, _v)) => {
-                let msg = FromServerMsg::StoreResp;
-                self.receiver.to.send(msg).unwrap();
-                Ok(())
+                let mut query = Query::new(QueryIntention::Get(key));
+                let nodes = self.table.k_closest(query.target, K);
+                query.add_node(nodes[0]);
+                self.query = Some(query);
+                self.continue_query(nodes[0])
             }
             _ => Ok(()),
         }
